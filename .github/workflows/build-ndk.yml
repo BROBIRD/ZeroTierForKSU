@@ -44,12 +44,15 @@ jobs:
             sso: true
           - arch: arm
             sso: false
-    if: ${{ matrix.sso == false || inputs.sso }}
     steps:
+      # matrix cannot be used in a job-level "if", so every step carries the gate:
+      # SSO legs (matrix.sso == true) only run when inputs.sso is true
       - name: Checkout ZeroTierForKSU
+        if: matrix.sso == false || inputs.sso == true
         uses: actions/checkout@v4
 
       - name: Get ZeroTier version
+        if: matrix.sso == false || inputs.sso == true
         id: ztversion
         env:
           GH_TOKEN: ${{ github.token }}
@@ -65,6 +68,7 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Checkout ZeroTierOne
+        if: matrix.sso == false || inputs.sso == true
         uses: actions/checkout@v4
         with:
           repository: zerotier/ZeroTierOne
@@ -72,28 +76,32 @@ jobs:
           path: ZeroTierOne
 
       - name: Checkout libnatpmp
+        if: matrix.sso == false || inputs.sso == true
         uses: actions/checkout@v4
         with:
           repository: miniupnp/libnatpmp
           path: libnatpmp
 
       - name: Prepare NDK Toolchain
+        if: matrix.sso == false || inputs.sso == true
         run: |
           wget -qO ndk.zip https://dl.google.com/android/repository/android-ndk-$ndk-linux.zip
           unzip -qq ndk.zip "android-ndk-$ndk/toolchains/*" && rm ndk.zip -f
 
       - name: Prepare SSO build (rust for android)
-        if: ${{ matrix.sso }}
+        if: (matrix.sso == false || inputs.sso == true) && matrix.sso
         run: |
           rustup target add aarch64-linux-android
 
       - name: Patch ZeroTier for cross-compile
+        if: matrix.sso == false || inputs.sso == true
         env:
           ANDROID_API_VERSION: ${{ env.api_version }}
         run: |
           python3 build/patch.py
 
       - name: Build zerotier-one
+        if: matrix.sso == false || inputs.sso == true
         env:
           ANDROID_NDK_ROOT: ${{ github.workspace }}/android-ndk-${{ env.ndk }}
           ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-${{ env.ndk }}
@@ -139,6 +147,7 @@ jobs:
           fi
 
       - name: Verify baked-in home path (ZeroTierForKSU layout)
+        if: matrix.sso == false || inputs.sso == true
         run: |
           # ZeroTierForKSU uses /data/adb/zerotier directly as the zerotier-one home
           # (zerotier.sh runs `$ZEROTIERD -d /data/adb/zerotier`), unlike zerotier-magisk
@@ -158,6 +167,7 @@ jobs:
           echo "home path check OK: /data/adb/zerotier"
 
       - name: Upload binary artifact
+        if: matrix.sso == false || inputs.sso == true
         uses: actions/upload-artifact@v4
         with:
           name: zerotierone-ndk-${{ matrix.arch }}

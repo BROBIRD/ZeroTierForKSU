@@ -52,12 +52,15 @@ jobs:
             makefile: make-linux.mk.arm
             sso: false
             packages: "gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf"
-    if: ${{ matrix.sso == false || inputs.sso }}
     steps:
+      # matrix cannot be used in a job-level "if", so every step carries the gate:
+      # SSO legs (matrix.sso == true) only run when inputs.sso is true
       - name: Checkout ZeroTierForKSU
+        if: matrix.sso == false || inputs.sso == true
         uses: actions/checkout@v4
 
       - name: Get ZeroTier version
+        if: matrix.sso == false || inputs.sso == true
         id: ztversion
         env:
           GH_TOKEN: ${{ github.token }}
@@ -74,6 +77,7 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Checkout ZeroTierOne
+        if: matrix.sso == false || inputs.sso == true
         uses: actions/checkout@v4
         with:
           repository: zerotier/ZeroTierOne
@@ -81,13 +85,14 @@ jobs:
           path: ZeroTierOne
 
       - name: Install dependencies
+        if: matrix.sso == false || inputs.sso == true
         run: |
           sudo apt-get update -qq
           sudo apt-get install -qqy ${{ matrix.packages }} pipx
           pipx install toml || pip3 install toml
 
       - name: Prepare SSO build (rust + multiarch openssl)
-        if: ${{ matrix.sso }}
+        if: (matrix.sso == false || inputs.sso == true) && matrix.sso
         run: |
           rustup target add aarch64-unknown-linux-gnu
           # multiarch libssl-dev provides static libssl.a/libcrypto.a for aarch64,
@@ -100,10 +105,12 @@ jobs:
           sudo apt-get install -qqy libssl-dev:arm64
 
       - name: Patch ZeroTier for cross-compile
+        if: matrix.sso == false || inputs.sso == true
         run: |
           python3 build/patch.py
 
       - name: Build zerotier-one
+        if: matrix.sso == false || inputs.sso == true
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
           cd ZeroTierOne
@@ -115,6 +122,7 @@ jobs:
           cp -f zerotier-one ../zerotier-one
 
       - name: Verify baked-in home path (ZeroTierForKSU layout)
+        if: matrix.sso == false || inputs.sso == true
         run: |
           # ZeroTierForKSU uses /data/adb/zerotier directly as the zerotier-one home
           # (zerotier.sh runs `$ZEROTIERD -d /data/adb/zerotier`), unlike zerotier-magisk
@@ -134,6 +142,7 @@ jobs:
           echo "home path check OK: /data/adb/zerotier"
 
       - name: Upload binary artifact
+        if: matrix.sso == false || inputs.sso == true
         uses: actions/upload-artifact@v4
         with:
           name: zerotierone-gcc-${{ matrix.arch }}

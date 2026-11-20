@@ -19,10 +19,12 @@
   import { KsuApi } from "@/api/ksu";
   import { toast } from "@/stores/toast";
   import { t, locale } from "svelte-i18n";
+  import { push } from "@/lib/router";
 
   const MODDIR = "/data/adb/modules/ZeroTierForKSU";
 
   let loading = false;
+  let planetCustom = false;
   let settings = {
     autoStart: false,
     firewall: false,
@@ -90,6 +92,7 @@
       // zerotier.sh: if file exists -> 0, else 1.
       // Loose equality (== 0) handles both number 0 and string "0"
       settings.routerRuleNew = status.routerRuleNew == 0;
+      planetCustom = status.planetCustom === true || status.planetCustom === "true";
     } catch (e: any) {
       toast.error(
         $t("settings.toasts.loadFailed", { values: { error: e.message } }),
@@ -408,6 +411,46 @@
     </div>
   </div>
 
+  <!-- Third-party Planet -->
+  <div class="space-y-3">
+    <h2
+      class="text-sm font-medium text-muted-foreground uppercase tracking-wider"
+    >
+      {$t("planets.sectionTitle")}
+    </h2>
+    <button
+      class="w-full rounded-xl border bg-card text-card-foreground shadow-sm divide-y text-left hover:bg-muted/50 transition-colors"
+      on:click={() => push("/planets")}
+    >
+      <div class="p-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div
+            class={cn(
+              "p-2 rounded-full",
+              planetCustom
+                ? "bg-amber-500/10 text-amber-600"
+                : "bg-primary/10 text-primary",
+            )}
+          >
+            <Globe class="h-5 w-5" />
+          </div>
+          <div>
+            <div class="font-medium">{$t("planets.manage")}</div>
+            <div class="text-xs text-muted-foreground">
+              {$t("planets.manageDesc")}
+            </div>
+          </div>
+        </div>
+        {#if planetCustom}
+          <span
+            class="bg-amber-500/20 text-amber-600 px-1.5 rounded text-[10px] font-semibold"
+            >{$t("planets.inUse")}</span
+          >
+        {/if}
+      </div>
+    </button>
+  </div>
+
   <!-- API Token -->
   <div class="space-y-3">
     <h2
@@ -569,7 +612,7 @@
       <button
         class="w-full p-4 flex items-center justify-between hover:bg-muted/50 transition-colors text-left"
         on:click={() =>
-          KsuApi.openUrl("https://github.com/powerAn2020/ZeroTierForKSU")}
+          KsuApi.openUrl("https://github.com/BROBIRD/ZeroTierForKSU")}
       >
         <div class="flex items-center gap-3">
           <div class="bg-primary/10 p-2 rounded-full text-primary">

@@ -1,0 +1,165 @@
+name: build with NDK toolchains
+# Build ZeroTier with the Android NDK (bionic, dynamic libc++), arm64 + arm.
+# arm64 also supports an SSO (zeroidc) variant. Ported from zerotier-magisk.
+
+on:
+  workflow_dispatch:
+    inputs:
+      zt_version:
+        description: "ZeroTier tag (empty = latest release)"
+        required: false
+        type: string
+        default: ""
+      sso:
+        description: "Build arm64 SSO (zeroidc) variant"
+        required: false
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      zt_version:
+        required: false
+        type: string
+        default: ""
+      sso:
+        required: false
+        type: boolean
+        default: true
+
+env:
+  api_version: 28 # min. 21 -- Android 9.0+
+  ndk: r30 # android-ndk-$ndk-linux.zip
+
+jobs:
+  build:
+    name: NDK ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            sso: false
+          - arch: arm64-sso
+            sso: true
+          - arch: arm
+            sso: false
+    if: ${{ matrix.sso == false || inputs.sso }}
+    steps:
+      - name: Checkout ZeroTierForKSU
+        uses: actions/checkout@v4
+
+      - name: Get ZeroTier version
+        id: ztversion
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.zt_version }}"
+          if [ -z "$tag" ]; then
+            tag=$(gh api repos/zerotier/ZeroTierOne/releases/latest --jq .tag_name)
+          fi
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "::error::could not resolve the ZeroTierOne release tag"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout ZeroTierOne
+        uses: actions/checkout@v4
+        with:
+          repository: zerotier/ZeroTierOne
+          ref: ${{ steps.ztversion.outputs.tag }}
+          path: ZeroTierOne
+
+      - name: Checkout libnatpmp
+        uses: actions/checkout@v4
+        with:
+          repository: miniupnp/libnatpmp
+          path: libnatpmp
+
+      - name: Prepare NDK Toolchain
+        run: |
+          wget -qO ndk.zip https://dl.google.com/android/repository/android-ndk-$ndk-linux.zip
+          unzip -qq ndk.zip "android-ndk-$ndk/toolchains/*" && rm ndk.zip -f
+
+      - name: Prepare SSO build (rust for android)
+        if: ${{ matrix.sso }}
+        run: |
+          rustup target add aarch64-linux-android
+
+      - name: Patch ZeroTier for cross-compile
+        env:
+          ANDROID_API_VERSION: ${{ env.api_version }}
+        run: |
+          python3 build/patch.py
+
+      - name: Build zerotier-one
+        env:
+          ANDROID_NDK_ROOT: ${{ github.workspace }}/android-ndk-${{ env.ndk }}
+          ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-${{ env.ndk }}
+          ANDROID_API: ${{ env.api_version }}
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          NDKBIN="$PWD/android-ndk-$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          NDK_ROOT="$PWD/android-ndk-$ndk/toolchains/llvm/prebuilt/linux-x86_64"
+          export PATH="$NDKBIN:$PATH"
+
+          # the armv7a triplet would not be recognized by make-linux.mk ("ARM wrestling"),
+          # which is why make-linux.mk.arm.ndk hardcodes CC_MACH=armhf
+          if [ "${{ matrix.arch }}" = "arm" ]; then
+            CC=armv7a-linux-androideabi$api_version-clang
+            CXX=armv7a-linux-androideabi$api_version-clang++
+          else
+            CC=aarch64-linux-android$api_version-clang
+            CXX=aarch64-linux-android$api_version-clang++
+          fi
+
+          cd libnatpmp
+          make clean
+          make --silent CC=$CC natpmpc-shared
+          cd ..
+
+          cd ZeroTierOne
+          if [ "${{ matrix.arch }}" = "arm64-sso" ]; then
+            mv make-linux.mk.ndk.sso make-linux.mk
+          elif [ "${{ matrix.arch }}" = "arm" ]; then
+            mv make-linux.mk.arm.ndk make-linux.mk
+          fi
+          make clean
+          make --silent -j $(nproc) ZT_DEBUG=0 ZT_SSO_SUPPORTED=${{ matrix.sso == true && 1 || 0 }} \
+            CC=$CC CXX=$CXX LDFLAGS="-L../libnatpmp" DEFS="-I../libnatpmp -D__GLIBC__=0"
+          cd ..
+
+          mkdir -p output/lib
+          cp ZeroTierOne/zerotier-one output/
+          if [ "${{ matrix.arch }}" = "arm" ]; then
+            cp $NDK_ROOT/sysroot/usr/lib/arm-linux-androideabi/libc++_shared.so output/lib/
+          else
+            cp $NDK_ROOT/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so output/lib/
+          fi
+
+      - name: Verify baked-in home path (ZeroTierForKSU layout)
+        run: |
+          # ZeroTierForKSU uses /data/adb/zerotier directly as the zerotier-one home
+          # (zerotier.sh runs `$ZEROTIERD -d /data/adb/zerotier`), unlike zerotier-magisk
+          # which nests it under /data/adb/zerotier/home. Assert the patched default.
+          if ! strings output/zerotier-one | grep -qF '/data/adb/zerotier'; then
+            echo "::error::binary default home is not /data/adb/zerotier -- build/patch.py OSUtils patch failed"
+            exit 1
+          fi
+          if strings output/zerotier-one | grep -qF '/data/adb/zerotier/home'; then
+            echo "::error::binary contains zerotier-magisk home path /data/adb/zerotier/home -- patch.py not adapted"
+            exit 1
+          fi
+          if strings output/zerotier-one | grep -qF '/var/lib/zerotier-one'; then
+            echo "::error::binary still contains upstream /var/lib/zerotier-one -- patch.py OSUtils patch missing"
+            exit 1
+          fi
+          echo "home path check OK: /data/adb/zerotier"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zerotierone-ndk-${{ matrix.arch }}
+          path: output/
+          retention-days: 3

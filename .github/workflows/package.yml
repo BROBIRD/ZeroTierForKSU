@@ -1,0 +1,153 @@
+name: package module
+# Assemble ZeroTierForKSU module zips (GCC/NDK x arm64/arm, optional SSO arm64)
+# from prebuilt binary artifacts + webroot, optionally publish a GitHub release.
+
+on:
+  workflow_call:
+    inputs:
+      zt_version:
+        required: true
+        type: string
+      module_version:
+        required: true
+        type: string
+      ui_path:
+        required: false
+        type: string
+        default: ui-new
+      sso:
+        required: false
+        type: boolean
+        default: true
+      release:
+        required: false
+        type: boolean
+        default: false
+      release_tag:
+        required: false
+        type: string
+        default: ""
+      release_name:
+        required: false
+        type: string
+        default: ""
+      prerelease:
+        required: false
+        type: boolean
+        default: false
+      changelog:
+        required: false
+        type: string
+        default: ""
+      update_branch:
+        required: false
+        type: string
+        default: "main"
+      dev:
+        description: "Point module updateJson to the _dev manifests"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package modules
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download webroot
+        uses: actions/download-artifact@v4
+        with:
+          name: webroot
+          path: webroot
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "zerotierone-*"
+          path: binaries
+
+      - name: Download static curl (arm64 + arm)
+        run: |
+          mkdir -p curl64 curl32 bin
+          latest_version=$(gh api repos/stunnel/static-curl/releases/latest --jq .tag_name)
+          wget -qO curl64.tar.xz "https://github.com/stunnel/static-curl/releases/download/${latest_version}/curl-linux-aarch64-musl-${latest_version}.tar.xz"
+          wget -qO curl32.tar.xz "https://github.com/stunnel/static-curl/releases/download/${latest_version}/curl-linux-armv7-musl-${latest_version}.tar.xz"
+          tar -xJf curl64.tar.xz -C curl64 curl
+          tar -xJf curl32.tar.xz -C curl32 curl
+          rm -f curl64.tar.xz curl32.tar.xz
+          wget -qO bin/cacert.pem https://curl.se/ca/cacert.pem
+          ls -la curl64 curl32
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Package all variants
+        env:
+          ZT_VERSION: ${{ inputs.zt_version }}
+          MODULE_VERSION: ${{ inputs.module_version }}
+          SSO_BUILD: ${{ inputs.sso }}
+          UPDATE_BRANCH: ${{ inputs.update_branch }}
+          DEV_SUFFIX: ${{ inputs.dev && '_dev' || '' }}
+        run: |
+          set -e
+          VARIANTS="GCC:arm64 GCC:arm NDK:arm64 NDK:arm"
+          if [ "$SSO_BUILD" = "true" ]; then
+            VARIANTS="$VARIANTS GCC:arm64-sso NDK:arm64-sso"
+          fi
+
+          mkdir -p dist
+          for v in $VARIANTS; do
+            TOOLCHAIN="${v%%:*}"
+            ARCHPART="${v#*:}"
+            ARCH="${ARCHPART%-sso}"
+            VARIANT_SSO=0
+            if [ "$ARCHPART" != "$ARCH" ]; then
+              VARIANT_SSO=1
+            fi
+            if [ "$TOOLCHAIN" = "NDK" ]; then
+              LIB_PATH="$PWD/binaries/zerotierone-ndk-${ARCHPART}/lib"
+            else
+              LIB_PATH=""
+            fi
+            if [ "$ARCH" = "arm64" ]; then
+              CURL_PATH="$PWD/curl64/curl"
+            else
+              CURL_PATH="$PWD/curl32/curl"
+            fi
+            BINARY_PATH="$PWD/binaries/zerotierone-${TOOLCHAIN,,}-${ARCHPART}/zerotier-one"
+
+            echo "::group::package ${TOOLCHAIN}${VARIANT_SSO:+-SSO} ${ARCH}"
+            ARCH=$ARCH TOOLCHAIN=$TOOLCHAIN SSO=$VARIANT_SSO \
+              ZT_VERSION="$ZT_VERSION" MODULE_VERSION="$MODULE_VERSION" \
+              BINARY_PATH="$BINARY_PATH" WEBROOT_PATH="$PWD/webroot" \
+              CURL_PATH="$CURL_PATH" LIB_PATH="$LIB_PATH" \
+              UPDATE_BRANCH="$UPDATE_BRANCH" PACKAGE_OUT_DIR="$PWD/dist" \
+              bash build/package.sh
+            echo "::endgroup::"
+          done
+
+          ls -lh dist
+
+      - name: Upload zips artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZeroTierForKSU-${{ inputs.module_version }}
+          path: dist/*.zip
+          retention-days: 7
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: ${{ inputs.release }}
+        with:
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: ${{ inputs.changelog == '' }}
+          body: ${{ inputs.changelog }}
+          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || inputs.module_version }}
+          name: ${{ inputs.release_name != '' && inputs.release_name || format('ZeroTierForKSU-{0}', inputs.module_version) }}
+          files: |
+            dist/*.zip

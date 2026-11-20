@@ -1,6 +1,7 @@
 import Dashboard from './routes/Dashboard.svelte';
 import LocalNetworks from './routes/LocalNetworks.svelte';
 import Moons from './routes/Moons.svelte';
+import PlanetManager from './routes/PlanetManager.svelte';
 import NetworkPeers from './routes/Local/NetworkPeers.svelte';
 import NetworkSettings from './routes/Local/NetworkSettings.svelte';
 import CentralNetworkList from './routes/Central/NetworkList.svelte';
@@ -12,6 +13,7 @@ export const routes = {
   '/': Dashboard,
   '/local': LocalNetworks,
   '/moons': Moons,
+  '/planets': PlanetManager,
   '/local/peers/:id': NetworkPeers,
   '/local/settings/:id': NetworkSettings,
   '/central': CentralNetworkList,

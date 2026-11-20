@@ -1,0 +1,206 @@
+"""Patch ZeroTierOne sources for cross-compiling with GCC / NDK toolchains.
+
+Ported from the zerotier-magisk project (eventlOwOp/zerotier-magisk, BROBIRD fork),
+adapted for ZeroTierForKSU:
+  - the zerotier-one home path is /data/adb/zerotier (not /data/adb/zerotier/home)
+  - TOML files are edited textually so no `toml` pip package is required
+
+Run from the repository root AFTER cloning ZeroTierOne/ (creates make-linux.mk.{aarch64,arm,ndk.sso,arm.ndk}).
+"""
+
+import os
+
+# Android API level, used to name the NDK clang wrapper (aarch64-linux-android<api>-clang)
+android_api = os.environ.get('ANDROID_API_VERSION', '28')
+
+
+def edit_toml(path, replacements, sections):
+    """Textual TOML editor:
+      - replacements: {key: replacement_line} for keys that already exist in the file
+      - sections: {header: [lines]} -- lines are inserted right below the existing
+        section header, or the whole section is appended when the header is missing.
+    Keeps upstream formatting/comments intact."""
+    with open(path, 'r', encoding='utf-8') as f:
+        lines = f.read().splitlines()
+
+    pending = dict(replacements)
+    out = []
+    seen_sections = set()
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('[') and stripped.endswith(']'):
+            seen_sections.add(stripped)
+            out.append(line)
+            if stripped in sections:
+                out.extend(sections[stripped])
+            continue
+        replaced = False
+        for key, repl in pending.items():
+            if stripped == key or stripped.startswith(key + ' ') or stripped.startswith(key + '='):
+                out.append(repl)
+                replaced = True
+                break
+        if not replaced:
+            out.append(line)
+
+    for header, body in sections.items():
+        if header not in seen_sections:
+            out.append('')
+            out.append(header)
+            out.extend(body)
+
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(out) + '\n')
+
+
+# Patch ZeroTierOne/rustybits/zeroidc/Cargo.toml
+# [dependencies]
+# openssl-sys = {version = ">=0.9", features = ["vendored"]}
+
+cargo_toml_path = "ZeroTierOne/rustybits/zeroidc/Cargo.toml"
+edit_toml(
+    cargo_toml_path,
+    replacements={
+        'openssl-sys': ('openssl-sys',
+                        'openssl-sys = {version = ">=0.9", features = ["vendored"]}'),
+    },
+    sections={
+        '[dependencies]': ['openssl-sys = {version = ">=0.9", features = ["vendored"]}'],
+    },
+)
+
+# -------------------------------------------------------------------------------------------------------
+
+# Patch ZeroTierOne/rustybits/zeroidc/.cargo/config.toml
+# [target.aarch64-unknown-linux-gnu]
+# linker = "aarch64-linux-gnu-gcc"
+# [target.aarch64-linux-android]
+# linker = "aarch64-linux-android<api>-clang"
+
+config_toml_path = "ZeroTierOne/rustybits/zeroidc/.cargo/config.toml"
+edit_toml(
+    config_toml_path,
+    replacements={},
+    sections={
+        '[target.aarch64-unknown-linux-gnu]': ['linker = "aarch64-linux-gnu-gcc"'],
+        '[target.aarch64-linux-android]': ['linker = "aarch64-linux-android%s-clang"' % android_api],
+    },
+)
+
+# -------------------------------------------------------------------------------------------------------
+
+# Patch ZeroTierOne/osdep/LinuxEthernetTap.cpp
+
+linux_tap_path = 'ZeroTierOne/osdep/LinuxEthernetTap.cpp'
+
+linux_tap_match1 = 'int rc = pthread_setaffinity_np(self, sizeof(cpu_set_t), &cpuset);'
+# bionic (NDK) has no pthread_setaffinity_np -> sched_setaffinity + pthread_gettid_np
+# glibc (GCC toolchains) has no pthread_gettid_np -> keep upstream pthread_setaffinity_np
+linux_tap_replace1 = '\n'.join((
+    '#if defined(__ANDROID__)',
+    'int rc = sched_setaffinity(pthread_gettid_np(self), sizeof(cpu_set_t), &cpuset);',
+    '#else',
+    'int rc = pthread_setaffinity_np(self, sizeof(cpu_set_t), &cpuset);',
+    '#endif',
+))
+
+linux_tap_match2 = '#include <sys/utsname.h>'
+linux_tap_replace2 = '#include <sys/utsname.h>\n#include <sched.h>'
+
+with open(linux_tap_path, 'r') as file:
+    data = file.read()
+if linux_tap_match1 not in data:
+    raise SystemExit('%s: pthread_setaffinity_np line not found -- upstream changed?' % linux_tap_path)
+patch_NDK = data.replace(linux_tap_match1, linux_tap_replace1).replace(linux_tap_match2, linux_tap_replace2)
+
+with open(linux_tap_path, 'w') as file:
+    file.write(patch_NDK)
+
+# -------------------------------------------------------------------------------------------------------
+
+# Patch ZeroTierOne/rustybits/zeroidc/src/{lib.rs,ext.rs}
+
+# zeroidc gates its whole implementation on linux/windows/macos, so it compiles to an
+# empty crate on Android ("no `ZeroIDC` in the root"). Add Android arm64 to the same
+# `cfg(any(...))` gate -- the gated code uses nothing Linux-specific.
+
+gate_match = 'all(target_os = "linux", target_arch = "aarch64"),'
+gate_replace = gate_match + '\n    all(target_os = "android", target_arch = "aarch64"),'
+
+for zeroidc_src in ('ZeroTierOne/rustybits/zeroidc/src/lib.rs',
+                    'ZeroTierOne/rustybits/zeroidc/src/ext.rs'):
+    with open(zeroidc_src, 'r') as file:
+        data = file.read()
+    if gate_match not in data:
+        raise SystemExit('%s: zeroidc platform gate not found -- upstream changed?' % zeroidc_src)
+    with open(zeroidc_src, 'w') as file:
+        file.write(data.replace(gate_match, gate_replace))
+
+# -------------------------------------------------------------------------------------------------------
+
+# Patch make-linux.mk
+
+make_linux_path = 'ZeroTierOne/make-linux.mk'
+with open(make_linux_path, 'r') as file:
+    data = file.read()
+    patch_aarch64 = data.replace(
+        '$(ZT_CARGO_FLAGS)', '$(ZT_CARGO_FLAGS) --target aarch64-unknown-linux-gnu --quiet'
+    ).replace(
+        'rustybits/target/debug/libzeroidc.a', 'rustybits/target/aarch64-unknown-linux-gnu/debug/libzeroidc.a'
+    ).replace(
+        'rustybits/target/release/libzeroidc.a', 'rustybits/target/aarch64-unknown-linux-gnu/release/libzeroidc.a'
+    )
+    patch_arm = data.replace(
+        "$(shell $(CC) -dumpmachine | cut -d '-' -f 1)", 'armhf'
+    ).replace(
+        'override CFLAGS+=-mfloat-abi=hard -march=armv6zk -marm -mfpu=vfp -mno-unaligned-access -mtp=cp15 -mcpu=arm1176jzf-s',
+        'override CFLAGS+=-mfloat-abi=hard -march=armv7-a -marm -mfpu=vfp'
+    ).replace(
+        'override CXXFLAGS+=-mfloat-abi=hard -march=armv6zk -marm -mfpu=vfp -fexceptions -mno-unaligned-access -mtp=cp15 -mcpu=arm1176jzf-s',
+        'override CXXFLAGS+=-mfloat-abi=hard -march=armv7-a -marm -mfpu=vfp -fexceptions'
+    )
+    patch_arm_ndk = data.replace(
+        "$(shell $(CC) -dumpmachine | cut -d '-' -f 1)", 'armhf'
+    ).replace(
+        'override CFLAGS+=-mfloat-abi=hard -march=armv6zk -marm -mfpu=vfp -mno-unaligned-access -mtp=cp15 -mcpu=arm1176jzf-s',
+        'override CFLAGS+=-march=armv7-a -marm -mfpu=vfp'
+    ).replace(
+        'override CXXFLAGS+=-mfloat-abi=hard -march=armv6zk -marm -mfpu=vfp -fexceptions -mno-unaligned-access -mtp=cp15 -mcpu=arm1176jzf-s',
+        'override CXXFLAGS+=-march=armv7-a -marm -mfpu=vfp -fexceptions'
+    )
+    # NDK + SSO(zeroidc): cargo builds for Android. rustc packs native static libs into a
+    # staticlib by default (link modifier +bundle), so the vendored OpenSSL (libssl.a /
+    # libcrypto.a) is already inside libzeroidc.a -- and Android has no libssl/libcrypto
+    # to link against anyway, so dropping -lssl -lcrypto is required here.
+    patch_ndk_sso = data.replace(
+        '$(ZT_CARGO_FLAGS)', '$(ZT_CARGO_FLAGS) --target aarch64-linux-android --quiet'
+    ).replace(
+        'rustybits/target/debug/libzeroidc.a', 'rustybits/target/aarch64-linux-android/debug/libzeroidc.a'
+    ).replace(
+        'rustybits/target/release/libzeroidc.a', 'rustybits/target/aarch64-linux-android/release/libzeroidc.a'
+    ).replace(
+        'libzeroidc.a -ldl -lssl -lcrypto', 'libzeroidc.a -ldl'
+    )
+
+with open(make_linux_path + '.aarch64', 'w') as file:
+    file.write(patch_aarch64)
+with open(make_linux_path + '.arm', 'w') as file:
+    file.write(patch_arm)
+with open(make_linux_path + '.ndk.sso', 'w') as file:
+    file.write(patch_ndk_sso)
+with open(make_linux_path + '.arm.ndk', 'w') as file:
+    file.write(patch_arm_ndk)
+
+# -------------------------------------------------------------------------------------------------------
+
+# Patch ZeroTierOne/osdep/OSUtils.cpp
+
+osutil_path = 'ZeroTierOne/osdep/OSUtils.cpp'
+with open(osutil_path, 'r') as file:
+    data = file.read()
+if '/var/lib/zerotier-one' in data:
+    data = data.replace('/var/lib/zerotier-one', '/data/adb/zerotier')
+    with open(osutil_path, 'w') as file:
+        file.write(data)
+
+print('ZeroTierOne patched for ZeroTierForKSU cross-compilation')

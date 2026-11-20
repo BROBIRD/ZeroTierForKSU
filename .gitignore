@@ -3,3 +3,4 @@ bin/curl
 webroot/
 ZeroTierForKSU.zip
 .ace-tool/
+*.log

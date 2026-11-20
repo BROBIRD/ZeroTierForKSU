@@ -32,7 +32,8 @@
   <van-field v-model="defaultUpdateChannel" input-align="right" is-link readonly :label="t('setting.branch')" :placeholder="defaultUpdateChannel" @click="showPicker = true" />
 
   <van-cell title="API Token" :value="hideKey(apiToken)" clickable @click="tokenEditor = true" />
-  <van-cell :title="t('setting.sourceCode')" is-link @click="openUrl('https://github.com/powerAn2020/ZeroTierOneForKSU')"/>
+  <van-cell :title="t('planet.manage')" is-link to="/planet" />
+  <van-cell :title="t('setting.sourceCode')" is-link @click="openUrl('https://github.com/BROBIRD/ZeroTierForKSU')"/>
   <van-cell :title="t('setting.apiDocument')" is-link @click="openUrl('https://docs.zerotier.com/api/tokens/#zerotier-central-token')" />
 
   <van-popup v-model:show="showPicker" round position="bottom">

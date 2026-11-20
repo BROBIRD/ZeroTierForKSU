@@ -35,6 +35,12 @@ if [ ! -d "/data/adb/zerotier" ]; then
   set_perm /data/adb/zerotier/state 0 0 0755
 fi
 
+# directory for third-party planet files (managed from the WebUI)
+if [ ! -d "/data/adb/zerotier/planets" ]; then
+  mkdir -p /data/adb/zerotier/planets
+  set_perm /data/adb/zerotier/planets 0 0 0755
+fi
+
 ui_print "- Setting permissions"
 set_perm_recursive $MODPATH 0 0 0755 0755
 

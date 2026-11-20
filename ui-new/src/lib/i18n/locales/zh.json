@@ -149,6 +149,74 @@
     "pref": "首选",
     "ago": "前"
   },
+  "planets": {
+    "sectionTitle": "第三方 Planet",
+    "manage": "管理第三方 Planet",
+    "manageDesc": "添加、编辑、复制、应用或删除自建根服务器(planet)文件",
+    "title": "第三方 Planet",
+    "add": "添加 Planet",
+    "noPlanets": "暂未保存任何第三方 Planet 文件。",
+    "inUse": "使用中",
+    "view": "查看",
+    "edit": "编辑",
+    "applying": "应用中...",
+    "apply": {
+      "button": "应用",
+      "title": "应用 Planet",
+      "message": "确定应用 Planet \"{name}\" 吗？ZeroTier 服务将重启以加载新的 Planet 文件，官方 Planet 会自动备份。",
+      "confirm": "应用"
+    },
+    "restore": {
+      "button": "还原",
+      "title": "还原官方 Planet",
+      "message": "确定还原为官方(默认)Planet 文件吗？ZeroTier 服务将重启。",
+      "confirm": "还原"
+    },
+    "delete": {
+      "button": "删除",
+      "title": "删除 Planet",
+      "message": "确定要删除 Planet \"{name}\" 吗？此操作不可撤销。",
+      "confirm": "删除"
+    },
+    "copy": {
+      "title": "复制 Planet",
+      "message": "将 Planet \"{src}\" 复制一份并以新名称保存。"
+    },
+    "editor": {
+      "addTitle": "添加 Planet",
+      "editTitle": "编辑 Planet",
+      "viewTitle": "查看 Planet",
+      "desc": "Planet 文件定义了 ZeroTier 根服务器。可用 zerotier-idtool 生成，或从第三方控制器(如 ZTNet)导出。",
+      "name": "名称",
+      "namePlaceholder": "例如 myroots",
+      "content": "Planet 文件内容",
+      "contentPlaceholder": "在此粘贴 Planet 文件的内容"
+    },
+    "status": {
+      "customActive": "正在使用第三方 Planet",
+      "defaultActive": "正在使用官方 Planet",
+      "desc": "应用的 Planet 文件将在 zerotier-one 启动时加载",
+      "worldId": "Planet World ID",
+      "worldTime": "Planet World 时间",
+      "currentNote": "当前生效的 Planet 文件"
+    },
+    "toasts": {
+      "loadFailed": "加载 Planet 列表失败: {error}",
+      "showFailed": "读取 Planet 失败: {error}",
+      "nameRequired": "请填写 Planet 名称",
+      "nameExists": "已存在名为 \"{name}\" 的 Planet",
+      "added": "已添加 Planet \"{name}\"",
+      "updated": "已更新 Planet \"{name}\"",
+      "copied": "已复制 \"{src}\" 为 \"{dst}\"",
+      "deleted": "已删除 Planet \"{name}\"",
+      "applied": "已应用 Planet \"{name}\"(服务已重启)",
+      "restored": "已还原官方 Planet",
+      "saveFailed": "保存 Planet 失败: {error}",
+      "applyFailed": "应用 Planet 失败: {error}",
+      "restoreFailed": "还原 Planet 失败: {error}",
+      "deleteFailed": "删除 Planet 失败: {error}"
+    }
+  },
   "peers": {
     "title": "网络节点",
     "loading": "加载节点中...",

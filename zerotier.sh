@@ -121,7 +121,13 @@ status_service() {
   if [ -f "${ZTPATH}/DNS" ]; then
     dns=$(grep -v '^[[:space:]]*$' "${ZTPATH}/DNS" | tr -d '\r\n')
   fi
-  data="{\"enable\": \"$zpid\", \"branch\": \"$branch\", \"firewall\": $firewall, \"autoStart\": $autoStart, \"apiToken\": \"$apiToken\", \"dns\": \"$dns\", \"uninstallKeep\": $uninstallKeep, \"routerRuleNew\": $routerRuleNew, \"cliStatus\": \"$cliStatus\"}"
+  planetCustom=false
+  if [ -f "${ZTPATH}/planet.default" ]; then
+    if ! $busybox cmp -s "${ZTPATH}/planet" "${ZTPATH}/planet.default"; then
+      planetCustom=true
+    fi
+  fi
+  data="{\"enable\": \"$zpid\", \"branch\": \"$branch\", \"firewall\": $firewall, \"autoStart\": $autoStart, \"apiToken\": \"$apiToken\", \"dns\": \"$dns\", \"uninstallKeep\": $uninstallKeep, \"routerRuleNew\": $routerRuleNew, \"planetCustom\": $planetCustom, \"cliStatus\": \"$cliStatus\"}"
   echo $data
 }
 start_service() {
@@ -135,6 +141,10 @@ start_service() {
     echo "starting $ZEROTIERD... \c"
     if [ -f ${ZTPATH}/state/disable ]; then
       rm ${ZTPATH}/state/disable
+    fi
+    # NDK builds link against libc++_shared.so shipped in MODDIR/lib
+    if [ -d "${MODDIR}/lib" ]; then
+      export LD_LIBRARY_PATH="${MODDIR}/lib:${LD_LIBRARY_PATH}"
     fi
     $ZEROTIERD -d $ZTPATH 2>&1 >$ZTPATH/error.log
     zt_rc=$?
@@ -178,7 +188,7 @@ switch_brach(){
   fi
 }
 get_branch(){
-  sed -n '/updateJson/{s/.*ZeroTierOneForKSU\/\([^/]*\).*/\1/p}' $MODDIR/module.prop
+  sed -n '/updateJson/{s/.*ZeroTierForKSU\/\([^/]*\).*/\1/p}' $MODDIR/module.prop
 }
 
 help() {

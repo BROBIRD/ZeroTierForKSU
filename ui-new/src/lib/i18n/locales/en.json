@@ -149,6 +149,74 @@
     "pref": "PREF",
     "ago": "ago"
   },
+  "planets": {
+    "sectionTitle": "Third-party Planet",
+    "manage": "Manage Third-party Planet",
+    "manageDesc": "Add, edit, copy, apply or delete private root server (planet) files",
+    "title": "Third-party Planet",
+    "add": "Add Planet",
+    "noPlanets": "No third-party planet files saved.",
+    "inUse": "IN USE",
+    "view": "View",
+    "edit": "Edit",
+    "applying": "Applying...",
+    "apply": {
+      "button": "Apply",
+      "title": "Apply Planet",
+      "message": "Apply planet \"{name}\"? The ZeroTier service will restart to load the new planet file. The official planet is backed up automatically.",
+      "confirm": "Apply"
+    },
+    "restore": {
+      "button": "Restore",
+      "title": "Restore Official Planet",
+      "message": "Restore the official (default) planet file? The ZeroTier service will restart.",
+      "confirm": "Restore"
+    },
+    "delete": {
+      "button": "Delete",
+      "title": "Delete Planet",
+      "message": "Are you sure you want to delete planet \"{name}\"? This action cannot be undone.",
+      "confirm": "Delete"
+    },
+    "copy": {
+      "title": "Copy Planet",
+      "message": "Create a copy of planet \"{src}\" with a new name."
+    },
+    "editor": {
+      "addTitle": "Add Planet",
+      "editTitle": "Edit Planet",
+      "viewTitle": "View Planet",
+      "desc": "Planet files define the ZeroTier root servers. You can generate one with zerotier-idtool or export it from a third-party controller (e.g. ZTNet).",
+      "name": "Name",
+      "namePlaceholder": "e.g. myroots",
+      "content": "Planet File Content",
+      "contentPlaceholder": "Paste the content of your planet file here"
+    },
+    "status": {
+      "customActive": "Using a third-party planet",
+      "defaultActive": "Using the official planet",
+      "desc": "The applied planet file is loaded when zerotier-one starts",
+      "worldId": "Planet World ID",
+      "worldTime": "Planet World Time",
+      "currentNote": "Currently active planet file"
+    },
+    "toasts": {
+      "loadFailed": "Failed to load planets: {error}",
+      "showFailed": "Failed to read planet: {error}",
+      "nameRequired": "Planet name is required",
+      "nameExists": "A planet named \"{name}\" already exists",
+      "added": "Planet \"{name}\" added",
+      "updated": "Planet \"{name}\" updated",
+      "copied": "Copied \"{src}\" to \"{dst}\"",
+      "deleted": "Planet \"{name}\" deleted",
+      "applied": "Planet \"{name}\" applied (service restarted)",
+      "restored": "Official planet restored",
+      "saveFailed": "Failed to save planet: {error}",
+      "applyFailed": "Failed to apply planet: {error}",
+      "restoreFailed": "Failed to restore planet: {error}",
+      "deleteFailed": "Failed to delete planet: {error}"
+    }
+  },
   "peers": {
     "title": "Network Peers",
     "loading": "Loading peers...",

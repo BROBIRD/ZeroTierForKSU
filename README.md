@@ -1,9 +1,11 @@
 # ZeroTier for KSU
 
-[![GitHub Release](https://img.shields.io/github/v/release/powerAn2020/ZeroTierForKSU)](https://github.com/powerAn2020/ZeroTierForKSU/releases)
-[![GitHub Download](https://img.shields.io/github/downloads/powerAn2020/ZeroTierForKSU/total)](https://github.com/powerAn2020/ZeroTierForKSU/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/BROBIRD/ZeroTierForKSU)](https://github.com/BROBIRD/ZeroTierForKSU/releases)
+[![GitHub Download](https://img.shields.io/github/downloads/BROBIRD/ZeroTierForKSU/total)](https://github.com/BROBIRD/ZeroTierForKSU/releases)
 
 基于KSU WEBUI实现的Zertier客户端，同时支持部分ZerotierOne服务端功能，仅支持老版API(legacy-central-api)，需要自行准备[API Token](https://docs.zerotier.com/tokens/#legacy-central-api-token)。
+
+支持自建根服务器(第三方 Planet / Private Root Servers)，可在 WebUI 中管理第三方 Planet 文件(增删改查、复制、编辑、应用、还原)。
 
 Magisk需要搭配[5ec1cff/KsuWebUIStandalone](https://github.com/5ec1cff/KsuWebUIStandalone)使用。
 
@@ -11,9 +13,22 @@ Magisk需要搭配[5ec1cff/KsuWebUIStandalone](https://github.com/5ec1cff/KsuWeb
 
 ## 分支说明
 
-目前main分支已不在添加新功能，进入维护状态，新的版本开发在dev分支
+新的版本开发在dev分支，发布版本请切换到main分支或打tag后使用 `build all` workflow 构建。
 
+## 安装包说明
 
+每个 Release 提供两种工具链构建的模块包，均包含 arm64/arm 架构：
+
+| 包名 | 工具链 | 说明 |
+| :--- | :--- | :--- |
+| `ZeroTierForKSU-GCC-arm64-*.zip` | GCC | aarch64 交叉编译，静态链接 Linux syscall，兼容性最好 |
+| `ZeroTierForKSU-GCC-arm-*.zip` | GCC | armv7-a 交叉编译 |
+| `ZeroTierForKSU-GCC-SSO-arm64-*.zip` | GCC | 带 SSO(zeroidc) 支持 |
+| `ZeroTierForKSU-NDK-arm64-*.zip` | NDK | Android NDK (bionic) 构建，需 Android 9.0(api 28) 以上 |
+| `ZeroTierForKSU-NDK-arm-*.zip` | NDK | Android NDK 构建，需 Android 9.0(api 28) 以上 |
+| `ZeroTierForKSU-NDK-SSO-arm64-*.zip` | NDK | 带 SSO(zeroidc) 支持 |
+
+编译方式与构建补丁参考 [eventlOwOp/zerotier-magisk](https://github.com/eventlOwOp/zerotier-magisk) (见 `build/patch.py`)。
 
 ## 免责声明
 
@@ -47,11 +62,21 @@ Magisk需要搭配[5ec1cff/KsuWebUIStandalone](https://github.com/5ec1cff/KsuWeb
 
   创建文件`/data/adb/zerotier/KEEP_ON_UNINSTALL`，卸载模块可保留数据目录
 
-  创建文件`/data/adb/zerotier/MANMANUAL`，关闭开机自启
+  创建文件`/data/adb/zerotier/MANUAL`，关闭开机自启
 
   创建文件`/data/adb/zerotier/ALLOW_9993`，iptables放行UDP 9993入端口
   
   创建文件`/data/adb/zerotier/ROUTER_RULE_NEW`，zerotier流量路由模式改为新建路由规则表，删除该文件则是提升main表优先级模式
+
+### 第三方 Planet 说明
+
+  使用 WebUI 「设置 → 管理第三方 Planet」即可完成添加、编辑、复制、删除、应用、还原；也可以直接操作文件:
+
+  第三方 Planet 文件保存于 `/data/adb/zerotier/planets/` 目录(每个文件形如 `myroots.planet`)
+
+  应用某个 Planet 时，官方默认 planet 会自动备份为 `/data/adb/zerotier/planet.default`，并重启服务生效；`还原` 则使用该备份覆盖当前 planet
+
+  也可以手动替换 `/data/adb/zerotier/planet` 为自己的 planet 文件后重启服务
 
 ### 执行脚本说明
 
@@ -112,7 +137,8 @@ Options:
       router                                    -- Set the Zerotier traffic routing method
         router     value:[ routing  | main ]
         action     value:[ A | D ]
-      orbit                                     -- Join Private Root Servers
+      moon                                      -- Join Private Root Servers
+        action     value:[ orbit | deorbit ]
         moonid     value:[ moonid ]
     central
       status                                    -- Show Center Status
@@ -128,6 +154,13 @@ Options:
     apiToken                                    -- Manage the tokenAuth for accessing the central API
       action       value:[ show | update ]
       key          value:[ apiToken ]
+    dns                                         -- Manage the custom DNS servers for curl
+      action       value:[ show | update ]
+      servers      value:[ dns_servers ]
+    planet                                      -- Manage third-party planet files (Private Root Servers)
+      action       value:[ list | show | add | edit | copy | delete | apply | restore ]
+      name         value:[ planet_name ] (without ".planet" extension)
+      data         value:[ base64 encoded planet content ] (required by add/edit)
 
 Example:
   help
@@ -144,7 +177,8 @@ Example:
     sh api.sh local router routing D 
     sh api.sh local router main A
     sh api.sh local router main D
-    sh api.sh local orbit yourMoonid
+    sh api.sh local moon orbit yourMoonid
+    sh api.sh local moon deorbit yourMoonid
     sh api.sh local network list
     sh api.sh local network leave yourNetworkid (suggest: use command `zerotier-cli leave yourNetworkid`)
     sh api.sh local network join  yourNetworkid {} (suggest: use command `zerotier-cli join yourNetworkid`)
@@ -162,6 +196,20 @@ Example:
   apiToken
     sh api.sh apiToken show
     sh api.sh apiToken update xxxxxxxxx
+
+  dns
+    sh api.sh dns show
+    sh api.sh dns update 1.1.1.1,8.8.8.8
+
+  planet
+    sh api.sh planet list
+    sh api.sh planet show myPlanet
+    sh api.sh planet add myPlanet <base64 of planet file>
+    sh api.sh planet edit myPlanet <base64 of planet file>
+    sh api.sh planet copy myPlanet myPlanet2
+    sh api.sh planet delete myPlanet
+    sh api.sh planet apply myPlanet
+    sh api.sh planet restore
 ```
 
 ## 感谢以下连接提供的帮助，顺序不分先后
@@ -171,7 +219,7 @@ Example:
 - [Network Management in Android: Routing](https://yotam.net/posts/network-management-in-android-routing/)
 - [vant-ui/vant-demo](https://github.com/vant-ui/vant-demo/tree/master/vant/vite)
 - [zfdx123/build-k40-ksu](https://github.com/zfdx123/build-k40-ksu)
-- [eventlOwOp/zerotier-magisk](https://github.com/eventlOwOp/zerotier-magisk/tree/master/zerotier)
+- [eventlOwOp/zerotier-magisk](https://github.com/eventlOwOp/zerotier-magisk) (GCC/NDK 构建方式与补丁来源)
 - [linuxscreen/ZeroTierOneForMagisk](https://github.com/linuxscreen/ZeroTierOneForMagisk)
 - [taamarin/box_for_magisk](https://github.com/taamarin/box_for_magisk/blob/master/box/scripts/box.inotify)
 - [stunnel/static-curl](https://github.com/stunnel/static-curl)

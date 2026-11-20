@@ -1,0 +1,65 @@
+name: build all
+# Build UI + GCC + NDK module zips in one go.
+# - manual dispatch: artifacts only (no release)
+# - pushed tag: publishes a release with all module zips
+
+on:
+  workflow_dispatch:
+    inputs:
+      zt_version:
+        description: "ZeroTier tag (empty = latest release)"
+        required: false
+        type: string
+        default: ""
+      ui_path:
+        description: "UI Path"
+        required: true
+        default: "ui-new"
+        type: choice
+        options:
+          - ui-new
+          - ui-src
+      sso:
+        description: "Build arm64 SSO (zeroidc) variants"
+        required: false
+        type: boolean
+        default: true
+  push:
+    tags: ["*"]
+
+permissions:
+  contents: write
+
+jobs:
+  ui:
+    name: Build UI
+    uses: ./.github/workflows/build-ui.yml
+    with:
+      ui_path: ${{ inputs.ui_path || 'ui-new' }}
+
+  gcc:
+    name: Build GCC binaries
+    uses: ./.github/workflows/build-gcc.yml
+    with:
+      zt_version: ${{ inputs.zt_version || '' }}
+      sso: ${{ inputs.sso != false }}
+
+  ndk:
+    name: Build NDK binaries
+    uses: ./.github/workflows/build-ndk.yml
+    with:
+      zt_version: ${{ inputs.zt_version || '' }}
+      sso: ${{ inputs.sso != false }}
+
+  package:
+    name: Package modules
+    needs: [ui, gcc, ndk]
+    uses: ./.github/workflows/package.yml
+    with:
+      zt_version: ${{ inputs.zt_version || '' }}
+      module_version: ${{ github.run_number }}
+      ui_path: ${{ inputs.ui_path || 'ui-new' }}
+      sso: ${{ inputs.sso != false }}
+      release: ${{ startsWith(github.ref, 'refs/tags/') }}
+      release_tag: ${{ github.ref_name }}
+      release_name: ${{ github.ref_name }}

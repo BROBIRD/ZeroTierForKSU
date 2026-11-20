@@ -1,6 +1,7 @@
 bin
 META-INF
 webroot
+lib
 api.sh
 customize.sh
 module.prop

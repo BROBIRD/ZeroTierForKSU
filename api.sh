@@ -43,6 +43,11 @@
 ###     dns                                         -- Manage the custom DNS servers for curl
 ###       action       value:[ show | update ]
 ###       servers      value:[ dns_servers ]
+###     planet                                      -- Manage third-party planet files (Private Root Servers)
+###       action       value:[ list | show | add | edit | copy | delete | apply | restore ]
+###       name         value:[ planet_name ] (without ".planet" extension)
+###       data         value:[ base64 encoded planet content ] (required by add/edit)
+###       dst          value:[ new_planet_name ] (required by copy)
 ###
 ### Example:
 ###   help
@@ -82,6 +87,16 @@
 ###   dns
 ###     sh api.sh dns show
 ###     sh api.sh dns update 1.1.1.1,8.8.8.8
+###
+###   planet
+###     sh api.sh planet list
+###     sh api.sh planet show myPlanet
+###     sh api.sh planet add myPlanet <base64 of planet file>
+###     sh api.sh planet edit myPlanet <base64 of planet file>
+###     sh api.sh planet copy myPlanet myPlanet2
+###     sh api.sh planet delete myPlanet
+###     sh api.sh planet apply myPlanet
+###     sh api.sh planet restore
 ###
 
 MODDIR=${0%/*}
@@ -313,6 +328,169 @@ check_local_pid() {
     exit 0
   fi
 }
+# =========================== third-party planet ===========================
+PLANETS_DIR=${ZTPATH}/planets
+
+check_planet_name() {
+  # planet names may contain letters, digits, '.', '_' and '-', but must not start with '.'
+  case "$1" in
+    ""|.*|*[!A-Za-z0-9._-]*)
+      {
+        echo "Invalid planet name: '$1'. Use letters/digits/._- and do not start with '.'." 1>&2
+        exit 1
+      }
+      ;;
+  esac
+}
+
+planet_world_info() {
+  # read planetWorldId / planetWorldTimestamp from the local API (empty when stopped)
+  worldId=''
+  worldTs=''
+  zpid=$(pgrep -f "zerotier-one")
+  if [ -n "$zpid" ]; then
+    status_json=$($CurlBIN -H "X-ZT1-Auth: $TOKEN" ${localAPIBase}/status 2>/dev/null)
+    if [ -n "$status_json" ]; then
+      worldId=$(echo "$status_json" | tr '{}[],' '\n' | $busybox awk -F: '/"planetWorldId"/ {gsub(/"/,"",$2); print $2; exit}')
+      worldTs=$(echo "$status_json" | tr '{}[],' '\n' | $busybox awk -F: '/"planetWorldTimestamp"/ {gsub(/"/,"",$2); print $2; exit}')
+    fi
+  fi
+}
+
+planet_list() {
+  using_custom=false
+  if [ -f "${ZTPATH}/planet.default" ]; then
+    if ! $busybox cmp -s "${ZTPATH}/planet" "${ZTPATH}/planet.default"; then
+      using_custom=true
+    fi
+  fi
+  active_md5=$($busybox md5sum "${ZTPATH}/planet" 2>/dev/null | $busybox awk '{print $1}')
+  planet_world_info
+  printf '{"planets":['
+  first=1
+  if [ -d "${PLANETS_DIR}" ]; then
+    for f in "${PLANETS_DIR}"/*.planet; do
+      [ -f "$f" ] || continue
+      name=$(basename "$f" .planet)
+      size=$($busybox stat -c %s "$f" 2>/dev/null)
+      mtime=$($busybox stat -c %Y "$f" 2>/dev/null)
+      md5=$($busybox md5sum "$f" 2>/dev/null | $busybox awk '{print $1}')
+      active=false
+      if [ -n "$active_md5" -a "$md5" = "$active_md5" ]; then
+        active=true
+      fi
+      if [ $first -eq 0 ]; then
+        printf ','
+      fi
+      printf '{"name":"%s","size":%s,"mtime":%s,"active":%s}' "$name" "${size:-0}" "${mtime:-0}" "$active"
+      first=0
+    done
+  fi
+  printf '],"usingCustom":%s,"backup":%s,"worldId":"%s","worldTimestamp":"%s"}' \
+    "$using_custom" \
+    "$([ -f "${ZTPATH}/planet.default" ] && echo true || echo false)" \
+    "$worldId" "$worldTs"
+}
+
+planet_show() {
+  check_planet_name "$1"
+  src=${PLANETS_DIR}/$1.planet
+  if [ ! -f "$src" ]; then
+    echo "planet not found: $1" 1>&2
+    exit 1
+  fi
+  $busybox base64 "$src"
+}
+
+planet_add() {
+  check_planet_name "$1"
+  mkdir -p "${PLANETS_DIR}"
+  dst=${PLANETS_DIR}/$1.planet
+  printf '%s' "$2" | $busybox base64 -d >"${dst}.tmp" 2>/dev/null
+  if [ ! -s "${dst}.tmp" ]; then
+    rm -f "${dst}.tmp"
+    echo "empty or invalid planet data" 1>&2
+    exit 1
+  fi
+  mv -f "${dst}.tmp" "$dst"
+  chmod 644 "$dst"
+  echo "done"
+}
+
+planet_edit() {
+  check_planet_name "$1"
+  src=${PLANETS_DIR}/$1.planet
+  if [ ! -f "$src" ]; then
+    echo "planet not found: $1" 1>&2
+    exit 1
+  fi
+  planet_add "$1" "$2"
+}
+
+planet_copy() {
+  check_planet_name "$1"
+  check_planet_name "$2"
+  src=${PLANETS_DIR}/$1.planet
+  dst=${PLANETS_DIR}/$2.planet
+  if [ ! -f "$src" ]; then
+    echo "planet not found: $1" 1>&2
+    exit 1
+  fi
+  if [ -f "$dst" ]; then
+    echo "planet already exists: $2" 1>&2
+    exit 1
+  fi
+  cp "$src" "$dst"
+  chmod 644 "$dst"
+  echo "done"
+}
+
+planet_delete() {
+  check_planet_name "$1"
+  src=${PLANETS_DIR}/$1.planet
+  if [ ! -f "$src" ]; then
+    echo "planet not found: $1" 1>&2
+    exit 1
+  fi
+  rm -f "$src"
+  echo "done"
+}
+
+planet_restart_if_running() {
+  zpid=$(pgrep -f "zerotier-one")
+  if [ -n "$zpid" ]; then
+    sh ${MODDIR}/zerotier.sh restart
+  fi
+}
+
+planet_apply() {
+  check_planet_name "$1"
+  src=${PLANETS_DIR}/$1.planet
+  if [ ! -f "$src" ]; then
+    echo "planet not found: $1" 1>&2
+    exit 1
+  fi
+  # keep a copy of the official planet so it can be restored later
+  if [ ! -f "${ZTPATH}/planet.default" -a -f "${ZTPATH}/planet" ]; then
+    cp "${ZTPATH}/planet" "${ZTPATH}/planet.default"
+  fi
+  cp "$src" "${ZTPATH}/planet"
+  chmod 644 "${ZTPATH}/planet"
+  # zerotier-one only reads the planet file at startup
+  planet_restart_if_running
+  echo "done"
+}
+
+planet_restore() {
+  if [ ! -f "${ZTPATH}/planet.default" ]; then
+    echo "no planet backup found" 1>&2
+    exit 1
+  fi
+  cp "${ZTPATH}/planet.default" "${ZTPATH}/planet"
+  chmod 644 "${ZTPATH}/planet"
+  planet_restart_if_running
+  echo "done"
+}
 # =========================== main ===========================
 case $1 in
 local)
@@ -460,6 +638,51 @@ dns)
       echo "$servers" >"$DNSFILE"
     fi
     echo "done"
+    ;;
+  esac
+  ;;
+planet)
+  shift
+  action=$1
+  name=$2
+  data=$3
+  # "copy" reuses the third slot as the destination name: api.sh planet copy src dst
+  case $action in
+  list)
+    planet_list
+    ;;
+  show)
+    planet_show "$name"
+    ;;
+  add)
+    if [ -z "$data" ]; then
+      echo "planet data (base64) is required" 1>&2
+      exit 1
+    fi
+    planet_add "$name" "$data"
+    ;;
+  edit)
+    if [ -z "$data" ]; then
+      echo "planet data (base64) is required" 1>&2
+      exit 1
+    fi
+    planet_edit "$name" "$data"
+    ;;
+  copy)
+    planet_copy "$name" "$data"
+    ;;
+  delete)
+    planet_delete "$name"
+    ;;
+  apply)
+    planet_apply "$name"
+    ;;
+  restore)
+    planet_restore
+    ;;
+  *)
+    echo "Usage: api.sh planet [list|show|add|edit|copy|delete|apply|restore] ..." 1>&2
+    exit 1
     ;;
   esac
   ;;

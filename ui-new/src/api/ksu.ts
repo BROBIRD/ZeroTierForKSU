@@ -219,6 +219,99 @@ export class KsuApi {
     await this.exec(`sh /data/adb/modules/ZeroTierForKSU/api.sh dns update "${dns.trim()}"`);
   }
 
+  // ======================== third-party planet ========================
+
+  static async planetList(): Promise<PlanetListInfo> {
+    const res = await this.exec(
+      `sh /data/adb/modules/ZeroTierForKSU/api.sh planet list`,
+    );
+    const info: PlanetListInfo = {
+      planets: [],
+      usingCustom: false,
+      backup: false,
+      worldId: "",
+      worldTimestamp: "",
+    };
+    if (!res) return info;
+    try {
+      const parsed = JSON.parse(res);
+      info.planets = Array.isArray(parsed.planets) ? parsed.planets : [];
+      info.usingCustom = parsed.usingCustom === true || parsed.usingCustom === "true";
+      info.backup = parsed.backup === true || parsed.backup === "true";
+      info.worldId = parsed.worldId || "";
+      info.worldTimestamp = parsed.worldTimestamp || "";
+      return info;
+    } catch (e) {
+      console.error("Failed to parse planet list", e);
+      return info;
+    }
+  }
+
+  static async planetShow(name: string): Promise<string> {
+    const res = await this.exec(
+      `sh /data/adb/modules/ZeroTierForKSU/api.sh planet show "${name}"`,
+    );
+    if (!res) return "";
+    try {
+      // The shell returns base64 so multi-line planet files survive transport
+      const b64 = res.replace(/\s+/g, "");
+      return decodeURIComponent(
+        Array.prototype.map
+          .call(atob(b64), (c: string) => {
+            return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2);
+          })
+          .join(""),
+      );
+    } catch (e) {
+      console.error("Failed to decode planet content", e);
+      return "";
+    }
+  }
+
+  static async planetAdd(name: string, content: string): Promise<void> {
+    const b64 = btoa(
+      encodeURIComponent(content).replace(/%([0-9A-F]{2})/g, (_, p1: string) => {
+        return String.fromCharCode(parseInt(p1, 16));
+      }),
+    );
+    await this.exec(
+      `sh /data/adb/modules/ZeroTierForKSU/api.sh planet add "${name}" '${b64}'`,
+    );
+  }
+
+  static async planetEdit(name: string, content: string): Promise<void> {
+    const b64 = btoa(
+      encodeURIComponent(content).replace(/%([0-9A-F]{2})/g, (_, p1: string) => {
+        return String.fromCharCode(parseInt(p1, 16));
+      }),
+    );
+    await this.exec(
+      `sh /data/adb/modules/ZeroTierForKSU/api.sh planet edit "${name}" '${b64}'`,
+    );
+  }
+
+  static async planetCopy(src: string, dst: string): Promise<void> {
+    await this.exec(
+      `sh /data/adb/modules/ZeroTierForKSU/api.sh planet copy "${src}" "${dst}"`,
+    );
+  }
+
+  static async planetDelete(name: string): Promise<void> {
+    await this.exec(
+      `sh /data/adb/modules/ZeroTierForKSU/api.sh planet delete "${name}"`,
+    );
+  }
+
+  static async planetApply(name: string): Promise<void> {
+    await this.exec(
+      `sh /data/adb/modules/ZeroTierForKSU/api.sh planet apply "${name}"`,
+    );
+  }
+
+  static async planetRestore(): Promise<void> {
+    await this.exec(`sh /data/adb/modules/ZeroTierForKSU/api.sh planet restore`);
+  }
+
   static async openUrl(url: string): Promise<void> {
     await this.exec(`am start -a android.intent.action.VIEW -d "${url}"`);
   }

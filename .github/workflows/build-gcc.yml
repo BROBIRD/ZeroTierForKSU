@@ -1,0 +1,141 @@
+name: build with GCC toolchains
+# Build ZeroTier with GNU cross toolchains (static glibc link), arm64 + arm.
+# arm64 also supports an SSO (zeroidc) variant. Ported from zerotier-magisk.
+
+on:
+  workflow_dispatch:
+    inputs:
+      zt_version:
+        description: "ZeroTier tag (empty = latest release)"
+        required: false
+        type: string
+        default: ""
+      sso:
+        description: "Build arm64 SSO (zeroidc) variant"
+        required: false
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      zt_version:
+        required: false
+        type: string
+        default: ""
+      sso:
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    name: GCC ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            cc: aarch64-linux-gnu-gcc
+            cxx: aarch64-linux-gnu-g++
+            makefile: make-linux.mk.aarch64
+            sso: false
+            packages: "gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"
+          - arch: arm64-sso
+            cc: aarch64-linux-gnu-gcc
+            cxx: aarch64-linux-gnu-g++
+            makefile: make-linux.mk.aarch64
+            sso: true
+            packages: "gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"
+          - arch: arm
+            cc: arm-linux-gnueabihf-gcc
+            cxx: arm-linux-gnueabihf-g++
+            makefile: make-linux.mk.arm
+            sso: false
+            packages: "gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf"
+    if: ${{ matrix.sso == false || inputs.sso }}
+    steps:
+      - name: Checkout ZeroTierForKSU
+        uses: actions/checkout@v4
+
+      - name: Get ZeroTier version
+        id: ztversion
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.zt_version }}"
+          if [ -z "$tag" ]; then
+            # unauthenticated api.github.com is rate limited on runners; gh api is not
+            tag=$(gh api repos/zerotier/ZeroTierOne/releases/latest --jq .tag_name)
+          fi
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "::error::could not resolve the ZeroTierOne release tag"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout ZeroTierOne
+        uses: actions/checkout@v4
+        with:
+          repository: zerotier/ZeroTierOne
+          ref: ${{ steps.ztversion.outputs.tag }}
+          path: ZeroTierOne
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -qqy ${{ matrix.packages }} pipx
+          pipx install toml || pip3 install toml
+
+      - name: Prepare SSO build (rust + multiarch openssl)
+        if: ${{ matrix.sso }}
+        run: |
+          rustup target add aarch64-unknown-linux-gnu
+          # multiarch libssl-dev provides static libssl.a/libcrypto.a for aarch64,
+          # required by the -lssl -lcrypto in the zeroidc link line
+          sudo dpkg --add-architecture arm64
+          sudo mv /etc/apt/sources.list.d/ubuntu.sources /root/ubuntu.sources.bak
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo mv build/sources.list /etc/apt/sources.list
+          sudo apt-get update -qqy
+          sudo apt-get install -qqy libssl-dev:arm64
+
+      - name: Patch ZeroTier for cross-compile
+        run: |
+          python3 build/patch.py
+
+      - name: Build zerotier-one
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cd ZeroTierOne
+          mv ${{ matrix.makefile }} make-linux.mk
+          make --silent -j $(nproc) ZT_STATIC=1 ZT_DEBUG=0 \
+            ZT_SSO_SUPPORTED=${{ matrix.sso == true && 1 || 0 }} \
+            CC=${{ matrix.cc }} CXX=${{ matrix.cxx }} LDFLAGS="-s"
+          file zerotier-one
+          cp -f zerotier-one ../zerotier-one
+
+      - name: Verify baked-in home path (ZeroTierForKSU layout)
+        run: |
+          # ZeroTierForKSU uses /data/adb/zerotier directly as the zerotier-one home
+          # (zerotier.sh runs `$ZEROTIERD -d /data/adb/zerotier`), unlike zerotier-magisk
+          # which nests it under /data/adb/zerotier/home. Assert the patched default.
+          if ! strings zerotier-one | grep -qF '/data/adb/zerotier'; then
+            echo "::error::binary default home is not /data/adb/zerotier -- build/patch.py OSUtils patch failed"
+            exit 1
+          fi
+          if strings zerotier-one | grep -qF '/data/adb/zerotier/home'; then
+            echo "::error::binary contains zerotier-magisk home path /data/adb/zerotier/home -- patch.py not adapted"
+            exit 1
+          fi
+          if strings zerotier-one | grep -qF '/var/lib/zerotier-one'; then
+            echo "::error::binary still contains upstream /var/lib/zerotier-one -- patch.py OSUtils patch missing"
+            exit 1
+          fi
+          echo "home path check OK: /data/adb/zerotier"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zerotierone-gcc-${{ matrix.arch }}
+          path: zerotier-one
+          retention-days: 3

@@ -1,0 +1,48 @@
+name: build ui
+# Build the WebUI (webroot) consumed by the module packaging workflows.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ui_path:
+        description: "UI Path"
+        required: true
+        default: "ui-new"
+        type: choice
+        options:
+          - ui-new
+          - ui-src
+  workflow_call:
+    inputs:
+      ui_path:
+        required: false
+        type: string
+        default: ui-new
+
+jobs:
+  build:
+    name: Build UI (${{ inputs.ui_path }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build UI
+        run: |
+          cd ${{ inputs.ui_path }}
+          npm install
+          npm run build
+          mkdir -p ../webroot
+          cp -r dist/* ../webroot/
+
+      - name: Upload webroot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webroot
+          path: webroot
+          retention-days: 3

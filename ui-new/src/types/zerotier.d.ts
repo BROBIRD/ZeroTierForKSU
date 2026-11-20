@@ -19,6 +19,21 @@ export interface ZeroTierStatus {
   versionRev: number;
 }
 
+export interface PlanetFile {
+  name: string;
+  size: number;
+  mtime: number;
+  active: boolean;
+}
+
+export interface PlanetListInfo {
+  planets: PlanetFile[];
+  usingCustom: boolean;
+  backup: boolean;
+  worldId: string;
+  worldTimestamp: string;
+}
+
 export interface LocalNetwork {
   id: string;
   name: string;

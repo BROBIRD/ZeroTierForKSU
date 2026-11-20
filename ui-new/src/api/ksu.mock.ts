@@ -1,6 +1,29 @@
 export class KsuApiMock {
   private static mockRunning = true;
   private static mockDns = "1.1.1.1,8.8.8.8";
+  private static mockPlanets = new Map<string, string>([
+    ["myroots", "# my custom planet (mock)\nfake planet content"],
+  ]);
+  private static mockPlanetDefault = "official planet content (mock)";
+  private static mockPlanetActive = "official planet content (mock)";
+
+  private static encode(content: string): string {
+    return btoa(
+      encodeURIComponent(content).replace(/%([0-9A-F]{2})/g, (_, p1: string) => {
+        return String.fromCharCode(parseInt(p1, 16));
+      }),
+    );
+  }
+
+  private static decode(b64: string): string {
+    return decodeURIComponent(
+      Array.prototype.map
+        .call(atob(b64), (c: string) => {
+          return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2);
+        })
+        .join(""),
+    );
+  }
 
   static async getModuleInfo(): Promise<any> {
     return {
@@ -38,10 +61,76 @@ export class KsuApiMock {
             dns: KsuApiMock.mockDns,
             uninstallKeep: false,
             routerRuleNew: 1,
+            planetCustom: KsuApiMock.mockPlanetActive !== KsuApiMock.mockPlanetDefault,
             cliStatus: KsuApiMock.mockRunning ? "200 info a1b2c3d4e5 1.10.6 ONLINE" : ""
           }));
         } else if (cmd.includes('zerotier.sh switch')) {
           resolve("Switched channel");
+        } else if (cmd.includes('api.sh planet list')) {
+          const usingCustom = KsuApiMock.mockPlanetActive !== KsuApiMock.mockPlanetDefault;
+          const planets = Array.from(KsuApiMock.mockPlanets.entries()).map(([name, content]) => ({
+            name,
+            size: content.length,
+            mtime: Math.floor(Date.now() / 1000),
+            active: content === KsuApiMock.mockPlanetActive
+          }));
+          resolve(JSON.stringify({
+            planets,
+            usingCustom,
+            backup: usingCustom || KsuApiMock.mockPlanets.size > 0,
+            worldId: "1496046187",
+            worldTimestamp: Date.now()
+          }));
+        } else if (cmd.includes('api.sh planet show')) {
+          const m = cmd.match(/planet show\s+"([^"]+)"/);
+          const content = m ? KsuApiMock.mockPlanets.get(m[1]) : null;
+          if (content === null) {
+            reject(new Error(`planet not found: ${m ? m[1] : ""}`));
+          } else {
+            resolve(KsuApiMock.encode(content));
+          }
+        } else if (cmd.includes('api.sh planet add')) {
+          const m = cmd.match(/planet add\s+"([^"]+)"\s+'([^']*)'/);
+          if (m) KsuApiMock.mockPlanets.set(m[1], KsuApiMock.decode(m[2]));
+          resolve("done");
+        } else if (cmd.includes('api.sh planet edit')) {
+          const m = cmd.match(/planet edit\s+"([^"]+)"\s+'([^']*)'/);
+          if (m && KsuApiMock.mockPlanets.has(m[1])) {
+            KsuApiMock.mockPlanets.set(m[1], KsuApiMock.decode(m[2]));
+            resolve("done");
+          } else {
+            reject(new Error(`planet not found: ${m ? m[1] : ""}`));
+          }
+        } else if (cmd.includes('api.sh planet copy')) {
+          const m = cmd.match(/planet copy\s+"([^"]+)"\s+"([^"]+)"/);
+          if (m && KsuApiMock.mockPlanets.has(m[1]) && !KsuApiMock.mockPlanets.has(m[2])) {
+            KsuApiMock.mockPlanets.set(m[2], KsuApiMock.mockPlanets.get(m[1])!);
+            resolve("done");
+          } else {
+            reject(new Error("copy failed (missing source or existing destination)"));
+          }
+        } else if (cmd.includes('api.sh planet delete')) {
+          const m = cmd.match(/planet delete\s+"([^"]+)"/);
+          if (m && KsuApiMock.mockPlanets.has(m[1])) {
+            KsuApiMock.mockPlanets.delete(m[1]);
+            resolve("done");
+          } else {
+            reject(new Error(`planet not found: ${m ? m[1] : ""}`));
+          }
+        } else if (cmd.includes('api.sh planet apply')) {
+          const m = cmd.match(/planet apply\s+"([^"]+)"/);
+          const content = m ? KsuApiMock.mockPlanets.get(m[1]) : null;
+          if (content === null) {
+            reject(new Error(`planet not found: ${m ? m[1] : ""}`));
+          } else {
+            KsuApiMock.mockPlanetActive = content;
+            KsuApiMock.mockRunning = true;
+            resolve("done");
+          }
+        } else if (cmd.includes('api.sh planet restore')) {
+          KsuApiMock.mockPlanetActive = KsuApiMock.mockPlanetDefault;
+          KsuApiMock.mockRunning = true;
+          resolve("done");
         } else if (cmd.includes('api.sh local firewall')) {
           resolve("Firewall updated");
         } else if (cmd.includes('api.sh apiToken update')) {
